@@ -1,0 +1,52 @@
+import torch
+import torch.nn as nn
+
+hidden_units = [512, 256, 128, 64, 32, 16]
+features_num = 6
+
+
+class Residual_block(nn.Module):
+    def __init__(self, hidden_unit, dim_stack):
+        super(Residual_block, self).__init__()
+        self.linear1 = nn.Linear(dim_stack, hidden_unit)
+        self.linear2 = nn.Linear(hidden_unit, dim_stack)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        orig_x = x.clone()
+        x = self.linear1(x)
+        x = self.linear2(x)
+        outputs = self.relu(x + orig_x)
+        return outputs
+
+
+class FeaturesCrossing(nn.Module):
+    def __init__(self, irff_dim_dense, report_idx2cf, report_idx2ff, report_idx2fr,
+                 report_idx2sim, report_idx2tr, report_idx2cc):
+        super(FeaturesCrossing, self).__init__()
+        self.report_idx2cf = torch.nn.Parameter(torch.FloatTensor(report_idx2cf), requires_grad=False)
+        self.report_idx2ff = torch.nn.Parameter(torch.FloatTensor(report_idx2ff), requires_grad=False)
+        self.report_idx2fr = torch.nn.Parameter(torch.FloatTensor(report_idx2fr), requires_grad=False)
+        self.report_idx2sim = torch.nn.Parameter(torch.FloatTensor(report_idx2sim), requires_grad=False)
+        self.report_idx2cc = torch.nn.Parameter(torch.FloatTensor(report_idx2cc), requires_grad=False)
+        self.report_idx2tr = torch.nn.Parameter(torch.FloatTensor(report_idx2tr), requires_grad=False)
+        dim_stack = features_num
+        self.res_layers = nn.ModuleList([
+            Residual_block(unit, dim_stack) for unit in hidden_units
+        ])
+        self.fusion = torch.nn.Linear(features_num, irff_dim_dense)
+
+    def forward(self, r_idx, c_idx):
+        cf = self.report_idx2cf[r_idx, c_idx].unsqueeze(1)
+        ff = self.report_idx2ff[r_idx, c_idx].unsqueeze(1)
+        fr = self.report_idx2fr[r_idx, c_idx].unsqueeze(1)
+        sim = self.report_idx2sim[r_idx, c_idx].unsqueeze(1)
+        cc = self.report_idx2cc[r_idx, c_idx].unsqueeze(1)
+        tr = self.report_idx2tr[r_idx, c_idx].unsqueeze(1)
+
+        r = torch.cat([sim, cf, cc, ff, fr, tr], dim=1)
+        for res in self.res_layers:
+            r = res(r)
+
+        features_fusion = self.fusion(r)
+        return features_fusion
